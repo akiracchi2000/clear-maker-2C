@@ -1,0 +1,24 @@
+{
+  "name": "Clear Maker 2C - 英単語 写メ採点",
+  "short_name": "Clear Maker 2C",
+  "description": "英単語テストの答案を撮影してAI採点する学習アプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ClearMaker2C">
+    <meta name="description" content="英単語の解答用紙を撮影してAI採点する学習アプリ">
+    <title>Clear Maker 2C</title>
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="student.css?v=2.5.0">
+</head>
+<body>
+    <header class="app-header">
+        <div>
+            <h1>Clear Maker 2C</h1>
+            <span class="app-subtitle">英単語 写メ採点</span>
+            <span class="app-version">v2.5.0</span>
+        </div>
+        <button id="settings-btn" class="icon-btn" type="button" aria-label="設定">⚙</button>
+    </header>
+
+    <main class="app-content">
+        <div id="setup-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>初期設定</h2>
+                <p>採点履歴に表示する生徒情報を登録してください。</p>
+                <div class="form-group">
+                    <label for="student-id">生徒番号 / No.</label>
+                    <input type="text" id="student-id" inputmode="numeric" placeholder="例: 0001">
+                </div>
+                <div class="form-group">
+                    <label for="student-name">氏名</label>
+                    <input type="text" id="student-name" placeholder="例: 山田太郎">
+                </div>
+                <button id="save-setup-btn" class="primary-btn" type="button">登録する</button>
+            </div>
+        </div>
+
+        <section class="learner-bar">
+            <div>
+                <span class="eyebrow">LEARNER</span>
+                <div class="learner-identity">
+                    <strong id="display-student"></strong>
+                    <span id="learner-rank" class="learner-rank rank-beginner">ビギナー</span>
+                </div>
+            </div>
+            <div id="data-status" class="data-status">単語データを読み込み中…</div>
+        </section>
+
+        <section id="test-builder" class="panel test-builder">
+            <div class="section-heading">
+                <div>
+                    <span class="step-chip">STEP 1</span>
+                    <h2>20題チャレンジ</h2>
+                </div>
+                <button id="history-toggle-btn" class="text-btn" type="button">採点履歴</button>
+            </div>
+            <div class="range-grid hidden" aria-hidden="true">
+                <label>開始番号
+                    <input id="range-start" type="number" min="1" max="1800" value="1">
+                </label>
+                <label>終了番号
+                    <input id="range-end" type="number" min="1" max="1800" value="100">
+                </label>
+                <label>出題数
+                    <select id="question-count">
+                        <option value="5">5問</option>
+                        <option value="10" selected>10問</option>
+                        <option value="20">20問</option>
+                        <option value="30">30問</option>
+                    </select>
+                </label>
+                <label>出題順
+                    <select id="question-order">
+                        <option value="random">ランダム</option>
+                        <option value="sequential">番号順</option>
+                        <option value="challenge20" selected>20題ずつチャレンジ</option>
+                    </select>
+                </label>
+            </div>
+            <p id="range-message" class="helper-text error-message hidden" role="status"></p>
+            <div id="challenge-progress" class="challenge-progress hidden"></div>
+            <button id="create-test-btn" class="primary-btn large-btn" type="button" disabled>問題を作成する</button>
+            <div id="review-controls" class="review-controls hidden">
+                <div>
+                    <label for="review-stage-select">クリア済みの回を復習</label>
+                    <select id="review-stage-select"></select>
+                </div>
+                <button id="review-test-btn" class="secondary-btn" type="button">選んだ回をテストする</button>
+            </div>
+            <div id="remedy-controls" class="remedy-controls hidden">
+                <div class="remedy-badge-box">
+                    <span class="remedy-icon">🔥</span>
+                    <div>
+                        <strong id="remedy-title">苦手克服チャレンジ</strong>
+                        <span id="remedy-count-label" class="remedy-count-label">要復習: 0語</span>
+                    </div>
+                </div>
+                <button id="remedy-test-btn" class="remedy-btn" type="button">間違えた単語だけテストする</button>
+            </div>
+        </section>
+
+        <section id="history-section" class="panel hidden">
+            <div class="section-heading"><h2>採点履歴</h2><button id="history-close-btn" class="text-btn" type="button">閉じる</button></div>
+            <div id="history-list" class="history-list"></div>
+        </section>
+
+        <section id="question-section" class="panel hidden">
+            <div class="section-heading">
+                <div><span class="step-chip">STEP 2</span><h2>問題を解く</h2></div>
+                <span id="test-range-label" class="range-badge"></span>
+            </div>
+            <p class="answer-guide"><strong>✍️ 【重要指示】問題番号と「英文の全文」を紙に書いてください</strong><br>空欄の単語だけでなく、<strong>必ず英文全体</strong>をノートや紙に書き写して回答してください（※単語のみの回答はノーカウントとなり採点されません）。<br>💡 文が長い場合やページが分かれる場合は、<strong>複数の写真に分けて撮影・追加</strong>できます。</p>
+            <div id="question-list" class="vocabulary-question-list"></div>
+            <button id="replace-test-btn" class="secondary-btn" type="button">問題を作り直す</button>
+        </section>
+
+        <section id="upload-section" class="panel upload-section hidden">
+            <div class="section-heading"><div><span class="step-chip">STEP 3</span><h2>答案を撮影する</h2></div></div>
+            <p class="helper-text" style="margin-bottom: 12px; color: var(--text-secondary);">※ノートが複数ページある場合は「写真を追加」で複数枚まとめて提出できます。</p>
+            <input type="file" id="camera-input" accept="image/*" capture="environment" class="visually-hidden">
+            <div id="preview-container" class="preview-container hidden">
+                <div id="image-preview-list" class="image-preview-list"></div>
+                <div class="preview-actions">
+                    <button id="add-more-btn" class="secondary-btn" type="button">写真を追加</button>
+                    <button id="clear-all-btn" class="secondary-btn" type="button">クリア</button>
+                </div>
+            </div>
+            <button id="upload-btn" class="primary-btn large-btn" type="button">解答を撮影・追加する</button>
+            <button id="evaluate-btn" class="primary-btn massive-btn hidden" type="button">採点する</button>
+        </section>
+
+        <div id="loading-indicator" class="loading hidden">
+            <div class="spinner"></div>
+            <p>英単語を読み取って採点中…<br>少しお待ちください</p>
+        </div>
+
+        <section id="result-section" class="result-section hidden">
+            <div id="result-badge" class="result-badge"></div>
+            <div class="result-details">
+                <div class="result-heading"><h2>採点結果</h2><span id="result-score" class="score-display"></span></div>
+                <div id="result-content" class="markdown-body"></div>
+                <button id="screenshot-btn" class="primary-btn result-action-btn screenshot-exclude" type="button">結果を画像で保存</button>
+                <button id="new-test-btn" class="secondary-btn result-action-btn" type="button">次のテストを作る</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="camera-modal" class="modal hidden camera-modal">
+        <div class="camera-viewer">
+            <video id="camera-video" autoplay playsinline title="カメラ映像"></video>
+            <div class="camera-controls">
+                <button id="camera-close-btn" class="camera-btn close" type="button" title="閉じる">×</button>
+                <div class="camera-bottom-actions">
+                    <button id="camera-switch-btn" class="camera-btn switch" type="button" title="カメラ切り替え">↻</button>
+                    <button id="camera-shutter-btn" class="camera-btn shutter" type="button" title="撮影"></button>
+                    <div class="camera-spacer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <canvas id="camera-canvas" class="hidden"></canvas>
+
+    <script src="student.js?v=2.5.0"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=2.5.0', { updateViaCache: 'none' })
+                .catch(error => console.error('Service Worker registration failed:', error)));
+        }
+    </script>
+</body>
+</html>
