@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwyvvIWBO6NxdNj3FE5DLXOBZdd3BqkHEv5VNiBU3NTSMSsp7qOBIIy957w31mol1mi/exec';
 const DATA_URLS = ['./vocabulary-question.json', './vocabulary-questions.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.5.0';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.5.3';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
@@ -21,7 +21,7 @@ const state = {
 const byId = id => document.getElementById(id);
 const els = {
     setupModal: byId('setup-modal'), studentId: byId('student-id'), studentName: byId('student-name'),
-    saveSetup: byId('save-setup-btn'), settings: byId('settings-btn'), displayStudent: byId('display-student'), learnerRank: byId('learner-rank'), dataStatus: byId('data-status'),
+    saveSetup: byId('save-setup-btn'), resetSetup: byId('reset-setup-btn'), settings: byId('settings-btn'), displayStudent: byId('display-student'), learnerRank: byId('learner-rank'), dataStatus: byId('data-status'),
     builder: byId('test-builder'), rangeStart: byId('range-start'), rangeEnd: byId('range-end'), questionCount: byId('question-count'),
     questionOrder: byId('question-order'), rangeMessage: byId('range-message'), challengeProgress: byId('challenge-progress'), createTest: byId('create-test-btn'),
     reviewControls: byId('review-controls'), reviewStageSelect: byId('review-stage-select'), reviewTest: byId('review-test-btn'),
@@ -51,6 +51,7 @@ async function init() {
 
 function bindEvents() {
     els.saveSetup.addEventListener('click', saveSetup);
+    if (els.resetSetup) els.resetSetup.addEventListener('click', resetAllStudentData);
     els.settings.addEventListener('click', () => els.setupModal.classList.remove('hidden'));
     [els.rangeStart, els.rangeEnd, els.questionCount].forEach(el => el.addEventListener('input', updateRangeMessage));
     els.questionOrder.addEventListener('change', updateModeUi);
@@ -199,6 +200,40 @@ function saveSetup() {
     updateStudentDisplay();
     els.setupModal.classList.add('hidden');
     syncVocabularyProgress().catch(error => console.warn('Progress sync deferred:', error));
+}
+
+function resetAllStudentData() {
+    const ok = confirm('⚠️ この端末に保存されている生徒情報・学習進捗・採点履歴・苦手リストをすべて初期化しますか？\n（最初からやり直すことができます）');
+    if (!ok) return;
+
+    try {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (
+                key.startsWith('clear_maker_2c_challenge20_') ||
+                key.startsWith('clear_maker_2c_remedy_') ||
+                key === 'clear_maker_2c_history' ||
+                key === 'student_id' ||
+                key === 'student_name'
+            )) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+
+        state.studentId = '';
+        state.studentName = '';
+        state.test = null;
+        if (els.studentId) els.studentId.value = '';
+        if (els.studentName) els.studentName.value = '';
+
+        alert('端末の学習データを初期化しました。');
+        location.reload();
+    } catch (err) {
+        console.error('Reset failed:', err);
+        alert('初期化中にエラーが発生しました。ブラウザのサイトデータを消去してください。');
+    }
 }
 
 function formatStudentId(value) {
@@ -567,6 +602,9 @@ async function openCamera() {
         els.cameraModal.classList.remove('hidden');
     } catch (error) {
         console.warn('Camera fallback:', error);
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            alert('📷 カメラへのアクセスが許可されていません。\n\n【カメラの許可方法】\n・iPad / iPhone: アドレスバー左の「ぁあ(AA)」→「Webサイトの設定」→「カメラ」を【許可】にする（または端末の【設定】→【Safari】→【カメラ】）\n・Android / PC: アドレスバー左の鍵アイコン→「権限」→「カメラ」を【許可】にする\n\n※このまま「写真ライブラリ（アルバム）」から写真を選んで提出することもできます。');
+        }
         els.cameraInput.click();
     }
 }
@@ -1003,22 +1041,76 @@ function resetForNextTest() {
 }
 
 async function saveResultImage() {
-    if (typeof html2canvas !== 'function') return alert('画像保存機能を読み込めませんでした。');
-    const original = els.screenshot.textContent;
-    els.screenshot.disabled = true;
-    els.screenshot.textContent = '画像を作成中…';
+    const btn = els.screenshot;
+    if (!els.resultSection || els.resultSection.classList.contains('hidden')) {
+        alert('保存する採点結果がありません。');
+        return;
+    }
+
+    if (typeof html2canvas === 'undefined') {
+        alert('画像生成ライブラリを読み込み中です。少し待ってから再度お試しください。');
+        return;
+    }
+
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '📸 画像を生成中…';
+    }
+
     try {
-        const canvas = await html2canvas(els.resultSection, { backgroundColor: '#f8fafc', scale: Math.min(2, devicePixelRatio || 1), ignoreElements: el => el.classList.contains('screenshot-exclude') });
+        const target = els.resultSection;
+        const studentInfo = (state.studentName || state.studentId || '生徒').replace(/[^\w\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff_-]/g, '_');
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+        const fileName = `英単語採点結果_${studentInfo}_${dateStr}.png`;
+
+        const canvas = await html2canvas(target, {
+            scale: Math.min(2, window.devicePixelRatio || 2),
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+            ignoreElements: el => el.classList.contains('screenshot-exclude') || el.id === 'screenshot-btn' || el.id === 'new-test-btn'
+        });
+
+        // 1. スマホの Web Share API (画像直接保存 / LINE共有等) を優先
+        if (navigator.share && navigator.canShare) {
+            try {
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+                if (blob) {
+                    const file = new File([blob], fileName, { type: 'image/png' });
+                    if (navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            files: [file],
+                            title: '英単語テスト採点結果',
+                            text: `${state.studentName || '生徒'}さんの英単語テスト採点結果です。`
+                        });
+                        return;
+                    }
+                }
+            } catch (shareErr) {
+                if (shareErr.name === 'AbortError') return;
+                console.warn('Web Share API error, falling back to download:', shareErr);
+            }
+        }
+
+        // 2. PC / Web Share 非対応環境: ダウンロードリンクをトリガー
+        const dataUrl = canvas.toDataURL('image/png');
         const link = document.createElement('a');
-        link.download = `clear-maker-2c-${state.studentId}-${new Date().toISOString().slice(0, 10)}.png`;
-        link.href = canvas.toDataURL('image/png');
+        link.download = fileName;
+        link.href = dataUrl;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+
     } catch (error) {
-        console.error(error);
-        alert('結果画像を保存できませんでした。');
+        console.error('画像保存エラー:', error);
+        alert('画像の保存に失敗しました。端末のスクリーンショット機能もお試しください。');
     } finally {
-        els.screenshot.disabled = false;
-        els.screenshot.textContent = original;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
     }
 }
 

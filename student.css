@@ -883,6 +883,53 @@ button:disabled {
     .history-item time { grid-column: 1; grid-row: auto; }
 }
 
+.modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.danger-btn {
+    background-color: #fff1f2 !important;
+    color: #e11d48 !important;
+    border: 1px solid #fecdd3 !important;
+    font-size: 0.88rem !important;
+    padding: 10px 16px !important;
+    transition: all 0.2s ease;
+}
+
+.danger-btn:hover {
+    background-color: #ffe4e6 !important;
+    color: #be123c !important;
+    border-color: #fda4af !important;
+}
+
+.camera-permission-box {
+    background-color: #f0fdf4;
+    border: 1.5px solid #86efac;
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin: 14px 0;
+    text-align: left;
+}
+
+.camera-permission-box strong {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #166534;
+    font-size: 0.92rem;
+    margin-bottom: 4px;
+}
+
+.camera-permission-box p {
+    color: #15803d;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 0;
+}
+
 
 
 
