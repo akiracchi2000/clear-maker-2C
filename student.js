@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwyvvIWBO6NxdNj3FE5DLXOBZdd3BqkHEv5VNiBU3NTSMSsp7qOBIIy957w31mol1mi/exec';
 const DATA_URLS = ['./vocabulary-question.json', './vocabulary-questions.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.5.3';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.0';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
@@ -81,73 +81,16 @@ const VOCABULARY_CACHE_KEY = 'clear_maker_2c_vocab_cache_v2';
 async function loadVocabulary() {
     try {
         let source = null;
-        let loadedUrl = '';
-        let lastError = null;
 
-        // 1. 端末内ローカルキャッシュをチェック（オフライン・高速起動）
-        const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
-        if (cachedStr) {
-            try {
-                source = JSON.parse(cachedStr);
-                loadedUrl = '端末内キャッシュ';
-            } catch (err) {
-                console.warn('Invalid cache:', err);
-                localStorage.removeItem(VOCABULARY_CACHE_KEY);
-            }
+        // 1. ローカル内蔵バンドルデータ（即時・オフライン0ミリ秒ロード）
+        if (globalThis.CLEAR_MAKER_VOCABULARY && globalThis.CLEAR_MAKER_VOCABULARY.items) {
+            source = globalThis.CLEAR_MAKER_VOCABULARY;
+        } else {
+            // スクリプト未ロード時のフォールバック
+            source = await loadVocabularyBundle();
         }
 
-        // 2. キャッシュがない場合、GASバックエンド（クラウド）から取得
-        if (!source && GAS_API_URL) {
-            els.dataStatus.textContent = '問題データを取得中…';
-            try {
-                const response = await fetch(GAS_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify({ action: 'getVocabularyData' })
-                });
-                if (response.ok) {
-                    const resData = await response.json();
-                    if (resData && resData.status === 'success' && resData.data?.items) {
-                        source = resData.data;
-                        loadedUrl = 'GAS クラウド';
-                        try {
-                            localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
-                        } catch (cacheErr) {
-                            console.warn('LocalStorage save failed:', cacheErr);
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn('GAS fetch failed:', err);
-                lastError = err;
-            }
-        }
-
-        // 3. ローカルファイルからのフォールバック（開発時等）
-        if (!source) {
-            for (const url of DATA_URLS) {
-                try {
-                    const response = await fetch(url, { cache: 'no-cache' });
-                    if (response.ok) {
-                        source = await response.json();
-                        loadedUrl = url;
-                        break;
-                    }
-                } catch (err) {
-                    lastError = err;
-                }
-            }
-        }
-        if (!source) {
-            try {
-                source = await loadVocabularyBundle();
-                loadedUrl = 'vocabulary-data.js';
-            } catch (err) {
-                lastError = err;
-            }
-        }
-
-        if (!source || !source.items) throw lastError || new Error('教材データを取得できませんでした');
+        if (!source || !source.items) throw new Error('教材データを取得できませんでした');
 
         state.vocabulary = Object.values(source.items || {}).map((item, index) => ({
             number: index + 1,
@@ -162,7 +105,7 @@ async function loadVocabulary() {
         els.rangeStart.max = state.vocabulary.length;
         els.rangeEnd.max = state.vocabulary.length;
         els.dataStatus.textContent = `${state.vocabulary.length.toLocaleString()}語・${state.vocabulary.reduce((sum, item) => sum + item.questions.length, 0).toLocaleString()}問`;
-        els.dataStatus.title = `${loadedUrl} から読み込みました`;
+        els.dataStatus.title = `vocabulary-data.js から即時読み込みました`;
         els.dataStatus.classList.add('ready');
         els.createTest.disabled = false;
         updateModeUi();
