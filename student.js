@@ -82,12 +82,38 @@ async function loadVocabulary() {
     try {
         let source = null;
 
-        // 1. ローカル内蔵バンドルデータ（即時・オフライン0ミリ秒ロード）
-        if (globalThis.CLEAR_MAKER_VOCABULARY && globalThis.CLEAR_MAKER_VOCABULARY.items) {
-            source = globalThis.CLEAR_MAKER_VOCABULARY;
-        } else {
-            // スクリプト未ロード時のフォールバック
-            source = await loadVocabularyBundle();
+        // 1. ローカルキャッシュから即時読み込み（通信ゼロ・0ミリ秒ロード）
+        const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
+        if (cachedStr) {
+            try {
+                source = JSON.parse(cachedStr);
+                if (!source || !source.items) source = null;
+            } catch (err) {
+                console.warn('キャッシュが無効です', err);
+                localStorage.removeItem(VOCABULARY_CACHE_KEY);
+                source = null;
+            }
+        }
+
+        // 2. キャッシュがない場合、GASバックエンド（クラウド）から取得（初回のみ）
+        if (!source && GAS_API_URL) {
+            els.dataStatus.textContent = '初回データダウンロード中(約10秒)…';
+            const response = await fetch(GAS_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: 'getVocabularyData' })
+            });
+            if (response.ok) {
+                const resData = await response.json();
+                if (resData && resData.status === 'success' && resData.data?.items) {
+                    source = resData.data;
+                    try {
+                        localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
+                    } catch (cacheErr) {
+                        console.warn('キャッシュ保存容量オーバー:', cacheErr);
+                    }
+                }
+            }
         }
 
         if (!source || !source.items) throw new Error('教材データを取得できませんでした');
@@ -99,13 +125,12 @@ async function loadVocabulary() {
             questions: Array.isArray(item.questions) ? item.questions.filter(q => q && q.question_text) : [],
         })).filter(item => item.word && item.questions.length);
 
-        globalThis.CLEAR_MAKER_VOCABULARY = null;
         if (!state.vocabulary.length) throw new Error('有効な問題がありません');
 
         els.rangeStart.max = state.vocabulary.length;
         els.rangeEnd.max = state.vocabulary.length;
         els.dataStatus.textContent = `${state.vocabulary.length.toLocaleString()}語・${state.vocabulary.reduce((sum, item) => sum + item.questions.length, 0).toLocaleString()}問`;
-        els.dataStatus.title = `vocabulary-data.js から即時読み込みました`;
+        els.dataStatus.title = `準備完了`;
         els.dataStatus.classList.add('ready');
         els.createTest.disabled = false;
         updateModeUi();
@@ -154,9 +179,7 @@ function resetAllStudentData() {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && (
-                key.startsWith('clear_maker_2c_challenge20_') ||
-                key.startsWith('clear_maker_2c_remedy_') ||
-                key === 'clear_maker_2c_history' ||
+                key.startsWith('clear_maker_2c_') ||
                 key === 'student_id' ||
                 key === 'student_name'
             )) {
