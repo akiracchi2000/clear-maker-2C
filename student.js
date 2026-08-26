@@ -78,6 +78,8 @@ function bindEvents() {
 
 const VOCABULARY_CACHE_KEY = 'clear_maker_2c_vocab_cache_v3';
 const VOCABULARY_VERSION_CACHE_KEY = 'clear_maker_2c_vocab_version';
+const VOCABULARY_RESPONSE_CACHE_NAME = 'clear-maker-2c-vocabulary-v1';
+const VOCABULARY_RESPONSE_CACHE_URL = new URL('./__cached-vocabulary-data-v1.json', location.href).href;
 const VOCABULARY_BLANK = '(　　　)';
 const INVALID_VOCABULARY_QUESTION_IDS = new Set();
 
@@ -213,23 +215,67 @@ async function fetchVocabularyDataVersion() {
     return String(data.dataVersion);
 }
 
+async function readCachedVocabularyData() {
+    if ('caches' in globalThis) {
+        try {
+            const cache = await caches.open(VOCABULARY_RESPONSE_CACHE_NAME);
+            const response = await cache.match(VOCABULARY_RESPONSE_CACHE_URL);
+            if (response) {
+                const source = await response.json();
+                if (source?.items) return source;
+                await cache.delete(VOCABULARY_RESPONSE_CACHE_URL);
+            }
+        } catch (cacheError) {
+            console.warn('教材キャッシュを読み込めません:', cacheError);
+        }
+    }
+
+    // 旧版の localStorage キャッシュが残っていれば読み込み、新方式へ移行する。
+    const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
+    if (!cachedStr) return null;
+    try {
+        const source = JSON.parse(cachedStr);
+        if (!source?.items) throw new Error('教材データの形式が無効です');
+        await writeCachedVocabularyData(source);
+        return source;
+    } catch (error) {
+        console.warn('旧教材キャッシュが無効です:', error);
+        localStorage.removeItem(VOCABULARY_CACHE_KEY);
+        return null;
+    }
+}
+
+async function writeCachedVocabularyData(source) {
+    let saved = false;
+    if ('caches' in globalThis) {
+        try {
+            const cache = await caches.open(VOCABULARY_RESPONSE_CACHE_NAME);
+            const response = new Response(JSON.stringify(source), {
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            });
+            await cache.put(VOCABULARY_RESPONSE_CACHE_URL, response);
+            saved = true;
+            // 7MB超の教材は localStorage の一般的な上限を超えるため、旧コピーを残さない。
+            localStorage.removeItem(VOCABULARY_CACHE_KEY);
+        } catch (cacheError) {
+            console.warn('教材を大容量キャッシュへ保存できません:', cacheError);
+        }
+    }
+
+    if (!saved) {
+        // Cache Storage 非対応環境だけ旧方式を試す。
+        localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
+    }
+    if (source.data_version) localStorage.setItem(VOCABULARY_VERSION_CACHE_KEY, String(source.data_version));
+}
+
 async function loadVocabulary() {
     try {
         let source = null;
         let shouldDownload = false;
 
         // 1. ローカルキャッシュを読み込み、更新確認に失敗しても使える状態にする
-        const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
-        if (cachedStr) {
-            try {
-                source = JSON.parse(cachedStr);
-                if (!source || !source.items) source = null;
-            } catch (err) {
-                console.warn('キャッシュが無効です', err);
-                localStorage.removeItem(VOCABULARY_CACHE_KEY);
-                source = null;
-            }
-        }
+        source = await readCachedVocabularyData();
 
 
         // 2. キャッシュがある場合は、軽量なバージョン情報だけをGASへ問い合わせる
@@ -258,10 +304,9 @@ async function loadVocabulary() {
                 if (resData && resData.status === 'success' && resData.data?.items) {
                     source = resData.data;
                     try {
-                        localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
-                        if (source.data_version) localStorage.setItem(VOCABULARY_VERSION_CACHE_KEY, String(source.data_version));
+                        await writeCachedVocabularyData(source);
                     } catch (cacheErr) {
-                        console.warn('キャッシュ保存容量オーバー:', cacheErr);
+                        console.warn('教材キャッシュの保存に失敗しました:', cacheErr);
                     }
                 } else {
                     throw new Error(resData?.error || '教材データを取得できませんでした');
@@ -333,7 +378,7 @@ function saveSetup() {
     syncVocabularyProgress().catch(error => console.warn('Progress sync deferred:', error));
 }
 
-function resetAllStudentData() {
+async function resetAllStudentData() {
     const ok = confirm('⚠️ この端末に保存されている生徒情報・学習進捗・採点履歴・苦手リストをすべて初期化しますか？\n（最初からやり直すことができます）');
     if (!ok) return;
 
@@ -350,6 +395,7 @@ function resetAllStudentData() {
             }
         }
         keysToRemove.forEach(k => localStorage.removeItem(k));
+        if ('caches' in globalThis) await caches.delete(VOCABULARY_RESPONSE_CACHE_NAME);
 
         state.studentId = '';
         state.studentName = '';

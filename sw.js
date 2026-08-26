@@ -1,9 +1,10 @@
-const CACHE_NAME = 'clear-maker-2c-v2.6.5';
+const CACHE_NAME = 'clear-maker-2c-v2.6.6';
+const VOCABULARY_CACHE_NAME = 'clear-maker-2c-vocabulary-v1';
 const APP_SHELL = [
     './',
     './index.html',
-    './student.css?v=2.6.5',
-    './student.js?v=2.6.5',
+    './student.css?v=2.6.6',
+    './student.js?v=2.6.6',
     './manifest.json',
     './icon-192.png',
     './icon-512.png',
@@ -16,7 +17,8 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(caches.keys().then(names => Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))).then(() => self.clients.claim()));
+    const retainedCaches = new Set([CACHE_NAME, VOCABULARY_CACHE_NAME]);
+    event.waitUntil(caches.keys().then(names => Promise.all(names.filter(name => !retainedCaches.has(name)).map(name => caches.delete(name)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', event => {
