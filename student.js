@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwyvvIWBO6NxdNj3FE5DLXOBZdd3BqkHEv5VNiBU3NTSMSsp7qOBIIy957w31mol1mi/exec';
 const DATA_URLS = ['./vocabulary-question.json', './vocabulary-questions.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.3';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.4';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
@@ -499,13 +499,14 @@ function renderRemedyOptions() {
     if (totalWrong < 1) return;
 
     if (activeWords.length > 0) {
-        els.remedyCountLabel.textContent = `要復習: 残り ${activeWords.length}語（全${totalWrong}語中）`;
+        els.remedyCountLabel.textContent = `要復習: 残り ${activeWords.length}語`;
+        els.remedyTest.classList.remove('hidden');
         els.remedyTest.disabled = false;
         els.remedyTest.textContent = `間違えた単語（${Math.min(20, activeWords.length)}問）をテストする`;
     } else {
-        els.remedyCountLabel.textContent = `🎉 すべての苦手単語を克服中！(${totalWrong}語 克服済み)`;
-        els.remedyTest.disabled = false;
-        els.remedyTest.textContent = `克服した単語を総復習する（${Math.min(20, totalWrong)}問）`;
+        els.remedyCountLabel.textContent = '🎉 苦手単語をすべて克服しました！';
+        els.remedyTest.disabled = true;
+        els.remedyTest.classList.add('hidden');
     }
 }
 
@@ -559,12 +560,7 @@ function createRemedyTest() {
         els.setupModal.classList.remove('hidden');
         return;
     }
-    let targetPool = getActiveRemedyWords();
-    let isReviewingMastered = false;
-    if (!targetPool.length) {
-        targetPool = getMasteredRemedyWords();
-        isReviewingMastered = true;
-    }
+    const targetPool = getActiveRemedyWords();
     if (!targetPool.length) return;
 
     const count = Math.min(20, targetPool.length);
@@ -591,8 +587,7 @@ function createRemedyTest() {
         questions: questions,
         challenge20: false,
         reviewMode: false,
-        remedyMode: true,
-        isReviewingMastered: isReviewingMastered
+        remedyMode: true
     };
 
     clearImages();
@@ -706,11 +701,6 @@ function masterRemedyWords(masteredTargetNumbers) {
 function getActiveRemedyWords() {
     const data = getRemedyData();
     return Object.values(data).filter(item => !item.mastered);
-}
-
-function getMasteredRemedyWords() {
-    const data = getRemedyData();
-    return Object.values(data).filter(item => item.mastered);
 }
 
 function formatQuestion(text) {
