@@ -434,6 +434,25 @@ button:disabled {
     to { transform: translateY(0); opacity: 1; }
 }
 
+/* 採点結果の画像生成時は、アニメーション途中の半透明状態を取り込ませない。 */
+.result-section.screenshot-capture,
+.result-section.screenshot-capture * {
+    animation: none !important;
+    transition: none !important;
+}
+
+.result-section.screenshot-capture {
+    transform: none !important;
+    opacity: 1 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+.result-section.screenshot-capture .result-details {
+    background: #ffffff !important;
+    opacity: 1 !important;
+}
+
 .result-badge {
     text-align: center;
     font-size: 1.35rem;

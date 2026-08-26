@@ -1175,12 +1175,23 @@ async function saveResultImage() {
         const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
         const fileName = `英単語採点結果_${studentInfo}_${dateStr}.png`;
 
+        // 表示アニメーション中の opacity / transform を html2canvas が拾うと、
+        // 一部のスマートフォンで画像全体が白く霞むため、撮影時だけ静止・不透明にする。
+        target.classList.add('screenshot-capture');
+        if (document.fonts?.ready) await document.fonts.ready;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
         const canvas = await html2canvas(target, {
-            scale: Math.min(2, window.devicePixelRatio || 2),
+            scale: Math.min(3, Math.max(2, window.devicePixelRatio || 1)),
             backgroundColor: '#ffffff',
             useCORS: true,
             logging: false,
-            ignoreElements: el => el.classList.contains('screenshot-exclude') || el.id === 'screenshot-btn' || el.id === 'new-test-btn'
+            removeContainer: true,
+            ignoreElements: el => el.classList.contains('screenshot-exclude') || el.id === 'screenshot-btn' || el.id === 'new-test-btn',
+            onclone: clonedDocument => {
+                const clonedTarget = clonedDocument.getElementById('result-section');
+                if (clonedTarget) clonedTarget.classList.add('screenshot-capture');
+            }
         });
 
         // 1. スマホの Web Share API (画像直接保存 / LINE共有等) を優先
@@ -1217,6 +1228,7 @@ async function saveResultImage() {
         console.error('画像保存エラー:', error);
         alert('画像の保存に失敗しました。端末のスクリーンショット機能もお試しください。');
     } finally {
+        els.resultSection?.classList.remove('screenshot-capture');
         if (btn) {
             btn.disabled = false;
             btn.textContent = originalText;
