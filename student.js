@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwyvvIWBO6NxdNj3FE5DLXOBZdd3BqkHEv5VNiBU3NTSMSsp7qOBIIy957w31mol1mi/exec';
 const DATA_URLS = ['./vocabulary-question.json', './vocabulary-questions.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.2';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.3';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
@@ -77,6 +77,7 @@ function bindEvents() {
 }
 
 const VOCABULARY_CACHE_KEY = 'clear_maker_2c_vocab_cache_v3';
+const VOCABULARY_VERSION_CACHE_KEY = 'clear_maker_2c_vocab_version';
 const VOCABULARY_BLANK = '(　　　)';
 const INVALID_VOCABULARY_QUESTION_IDS = new Set();
 
@@ -200,11 +201,24 @@ function prepareVocabularyQuestions(item) {
     });
 }
 
+async function fetchVocabularyDataVersion() {
+    const response = await fetch(GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'getVocabularyVersion' }),
+    });
+    if (!response.ok) throw new Error(`教材バージョン確認 HTTP ${response.status}`);
+    const data = await response.json();
+    if (data?.status !== 'success' || !data.dataVersion) throw new Error('教材バージョンを取得できませんでした');
+    return String(data.dataVersion);
+}
+
 async function loadVocabulary() {
     try {
         let source = null;
+        let shouldDownload = false;
 
-        // 1. ローカルキャッシュから即時読み込み（通信ゼロ・0ミリ秒ロード）
+        // 1. ローカルキャッシュを読み込み、更新確認に失敗しても使える状態にする
         const cachedStr = localStorage.getItem(VOCABULARY_CACHE_KEY);
         if (cachedStr) {
             try {
@@ -217,24 +231,44 @@ async function loadVocabulary() {
             }
         }
 
-        // 2. キャッシュがない場合、GASバックエンド（クラウド）から取得（初回のみ）
-        if (!source && GAS_API_URL) {
-            els.dataStatus.textContent = '初回データダウンロード中(約10秒)…';
-            const response = await fetch(GAS_API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({ action: 'getVocabularyData' })
-            });
-            if (response.ok) {
+
+        // 2. キャッシュがある場合は、軽量なバージョン情報だけをGASへ問い合わせる
+        if (source && GAS_API_URL) {
+            els.dataStatus.textContent = '教材データの更新を確認中…';
+            try {
+                const remoteVersion = await fetchVocabularyDataVersion();
+                const cachedVersion = String(source.data_version || localStorage.getItem(VOCABULARY_VERSION_CACHE_KEY) || '');
+                shouldDownload = !cachedVersion || cachedVersion !== remoteVersion;
+            } catch (versionError) {
+                console.warn('教材バージョンを確認できないため、保存済みデータを使用します:', versionError);
+            }
+        }
+
+        // 3. 初回、またはサーバー側の問題データが更新された場合だけ全データを取得する
+        if ((!source || shouldDownload) && GAS_API_URL) {
+            els.dataStatus.textContent = source ? '最新版の教材データをダウンロード中…' : '初回データダウンロード中(約10秒)…';
+            try {
+                const response = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'getVocabularyData' })
+                });
+                if (!response.ok) throw new Error(`教材データ取得 HTTP ${response.status}`);
                 const resData = await response.json();
                 if (resData && resData.status === 'success' && resData.data?.items) {
                     source = resData.data;
                     try {
                         localStorage.setItem(VOCABULARY_CACHE_KEY, JSON.stringify(source));
+                        if (source.data_version) localStorage.setItem(VOCABULARY_VERSION_CACHE_KEY, String(source.data_version));
                     } catch (cacheErr) {
                         console.warn('キャッシュ保存容量オーバー:', cacheErr);
                     }
+                } else {
+                    throw new Error(resData?.error || '教材データを取得できませんでした');
                 }
+            } catch (downloadError) {
+                if (!source) throw downloadError;
+                console.warn('最新版を取得できないため、保存済みデータを使用します:', downloadError);
             }
         }
 

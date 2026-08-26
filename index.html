@@ -17,14 +17,14 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="student.css?v=2.6.2">
+    <link rel="stylesheet" href="student.css?v=2.6.3">
 </head>
 <body>
     <header class="app-header">
         <div>
             <h1>Clear Maker 2C</h1>
             <span class="app-subtitle">英単語 写メ採点</span>
-            <span class="app-version">v2.6.2</span>
+            <span class="app-version">v2.6.3</span>
         </div>
         <button id="settings-btn" class="icon-btn" type="button" aria-label="設定">⚙</button>
     </header>
@@ -178,11 +178,11 @@
     </div>
     <canvas id="camera-canvas" class="hidden"></canvas>
 
-    <script src="student.js?v=2.6.2"></script>
+    <script src="student.js?v=2.6.3"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=2.6.2', { updateViaCache: 'none' })
+                navigator.serviceWorker.register('./sw.js?v=2.6.3', { updateViaCache: 'none' })
                     .catch(error => console.error('Service Worker registration failed:', error));
             });
         }
