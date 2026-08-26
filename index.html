@@ -17,14 +17,14 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="student.css?v=2.6.1">
+    <link rel="stylesheet" href="student.css?v=2.6.0">
 </head>
 <body>
     <header class="app-header">
         <div>
             <h1>Clear Maker 2C</h1>
             <span class="app-subtitle">英単語 写メ採点</span>
-            <span class="app-version">v2.6.1</span>
+            <span class="app-version">v2.6.0</span>
         </div>
         <button id="settings-btn" class="icon-btn" type="button" aria-label="設定">⚙</button>
     </header>
@@ -127,7 +127,7 @@
                 <div><span class="step-chip">STEP 2</span><h2>問題を解く</h2></div>
                 <span id="test-range-label" class="range-badge"></span>
             </div>
-            <p class="answer-guide"><strong>✍️ 【重要指示】問題番号と「英文の全文」を紙に書いてください</strong><br>空欄の単語だけでなく、<strong>必ず英文全体</strong>をノートや紙に書き写して回答してください（※単語のみの回答はノーカウントとなり採点されません）。<br>💡 文が長い場合やページが分かれる場合は、<strong>複数の写真に分けて撮影・追加</strong>できます。</p>
+            <p class="answer-guide"><strong>✍️ 問題番号と英単語（スペル）を紙に書いてください</strong><br>空欄に入る英単語のみ（例: <code>1. accept</code>）を手書きして提出できます。<br>💡 英文全体を書いても正しく採点されます。複数枚の写真に分けて撮影・追加も可能です。</p>
             <div id="question-list" class="vocabulary-question-list"></div>
             <button id="replace-test-btn" class="secondary-btn" type="button">問題を作り直す</button>
         </section>
@@ -178,11 +178,11 @@
     </div>
     <canvas id="camera-canvas" class="hidden"></canvas>
 
-    <script src="student.js?v=2.6.1"></script>
+    <script src="student.js?v=2.6.0"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=2.6.1', { updateViaCache: 'none' })
+                navigator.serviceWorker.register('./sw.js?v=2.6.0', { updateViaCache: 'none' })
                     .catch(error => console.error('Service Worker registration failed:', error));
             });
         }

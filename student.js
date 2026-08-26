@@ -663,38 +663,26 @@ function clearImages() {
 
 async function evaluateAnswer() {
     if (!state.test || !state.images.length) return;
-    const answerKey = state.test.questions.map(q => `${q.number}. 正答「${q.answer}」\n問題文: ${q.text}`).join('\n\n');
+    const answerKey = state.test.questions.map(q => `${q.number}. 正答:「${q.answer}」 (問題文: ${q.text})`).join('\n');
     const prompt = `あなたは英単語テストの厳密かつ丁寧な採点・添削者です。
-生徒は問題番号とともに「英文の全文」を手書きで書いています。答案画像を読み取り、下の問題番号と正答表に照合してください。
+生徒は問題番号（1〜${state.test.questions.length}）とともに「英単語」または「英文」を手書きで書いています。
+答案画像を正確に読み取り、下の【問題と正答表】に照合して採点してください。
 
-【最重要ルール: 英文全文の記述チェック（単語のみはノーカウント・再提出）】
-- このテストでは「空欄の単語だけでなく英文の全文を手書きで書くこと」が必須です。
-- 答案画像を確認し、単語のみしか書かれていない設問が大半である場合や、英文全体を書く指示が守られていない場合は、通常採点を中止して以下の【再提出フォーマット】で出力してください。
-
-【再提出フォーマット（単語のみで英文全文が書かれていない場合）】
-[判定]
-再提出（英文全文未記入）
-[得点]
-0/${state.test.questions.length}
-[詳細]
-単語のみが記入されています。このテストでは単語だけでなく「英文の全文」をノートに書いて提出する必要があります。英文全体を書いて、再度撮影・提出してください。
-[ひとこと]
-単語だけでなく文全体を書くことで、文法や使い方が身につきます！もう一度英文を書いて撮影しましょう。
-
-【通常採点フォーマット（英文の全文が書かれている場合）】
-1. 【得点・合否の判定対象】:
-   - ○/×の合否判定は、空欄に入るべき「ターゲット英単語（正答）」のスペルのみを対象とします。
-   - 大文字・小文字だけの違いは正解（ただし文頭や「I」など本来大文字にすべき語は補足で指導）。
-   - ターゲット単語の綴りが1文字でも違う、空欄、判読不能は不正解（×）。
-   - 合格は90%以上の正解。${state.test.questions.length}問すべてを必ず判定してください。
-
-2. 【英文全体のチェック・アドバイス（合否には影響させない）】:
-   - ターゲット単語以外の部分（文頭の大文字、文末のピリオド、前後の単語のスペルミス、脱落など）に気付きがあれば、採点の○/×には影響させず、[詳細]の各問に「※注: ...」として補足するか、[ひとこと]で親切に指導・アドバイスをしてください。
+【採点ルール】
+1. ○/×の合否判定は、空欄に入るべき「ターゲット英単語（正答）」のスペルのみを対象とします。
+2. 生徒が「単語のみ（例: 1. accept）」を手書きしている場合も、「英文全体」を書いている場合も、どちらも正しく採点してください。
+3. 大文字・小文字の違いは正解として扱ってください（文頭等の場合は補足でアドバイス）。
+4. ターゲット英単語のスペルが1文字でも異なる、空欄、判読不能は不正解（×）です。
+5. 単語の使い回し（同じ単語を複数の異なる問題に当てはめて書いている）や明らかなカンニングは不正解としてください。
+6. 合格基準は90%以上（${state.test.questions.length}問中${Math.ceil(state.test.questions.length * 0.9)}問以上）の正解です。
+7. ${state.test.questions.length}問すべてについて判定を出力してください。
 
 【問題と正答表】
 ${answerKey}
 
-（英文全文が書かれている場合は次の形式だけで日本語出力してください）
+【出力フォーマット】
+次の形式だけで日本語出力してください。
+
 [判定]
 合格 または 再チャレンジ
 [得点]
@@ -702,10 +690,9 @@ ${answerKey}
 [詳細]
 1. ○ 読み取り「...」 / 正答「...」
 2. × 読み取り「...」 / 正答「...」
-   ※注: （ターゲット以外の単語ミスや文末ピリオド抜け等があればここに簡潔に記載）
-（全番号を出力）
+（全${state.test.questions.length}問を出力）
 [ひとこと]
-短く前向きなコメント。間違い単語のポイントや、英文全体の書き方（スペルや句読点など）へのアドバイス。`;
+短く前向きなコメント。間違えた単語のスペルの注意点や覚え方のワンポイントアドバイス。`;
 
     setGradingState(true);
     try {
@@ -773,7 +760,7 @@ function getAiText(data) {
 }
 
 function displayResult(text) {
-    const isResubmit = text.includes('再提出') || text.includes('全文未記入') || text.includes('単語のみが記入');
+    const isResubmit = text.includes('再提出') && (text.includes('白紙') || text.includes('判読不能') || text.includes('関係ない画像'));
     if (isResubmit) {
         els.resultBadge.className = 'result-badge retry';
         els.resultBadge.textContent = '再提出';
@@ -782,7 +769,7 @@ function displayResult(text) {
         els.resultContent.innerHTML = sanitizeHtml(marked.parse(details || text, { breaks: true }));
         const warning = document.createElement('div');
         warning.className = 'challenge-result locked';
-        warning.innerHTML = `<strong>⚠️ 英文の全文が書かれていません（ノーカウント）</strong><span>単語だけでなく英文の全文をノートに書き、再度撮影してください。</span>`;
+        warning.innerHTML = `<strong>⚠️ 答案を正しく読み取れませんでした</strong><span>写真が不鮮明か、文字が判読できませんでした。ピントを合わせて再度撮影してください。</span>`;
         els.resultContent.prepend(warning);
         els.resultSection.classList.remove('hidden');
         els.newTest.textContent = 'もう一度撮影する';

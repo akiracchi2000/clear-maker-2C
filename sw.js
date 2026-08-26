@@ -1,9 +1,9 @@
-const CACHE_NAME = 'clear-maker-2c-v2.6.1';
+const CACHE_NAME = 'clear-maker-2c-v2.6.0';
 const APP_SHELL = [
     './',
     './index.html',
-    './student.css?v=2.6.1',
-    './student.js?v=2.6.1',
+    './student.css?v=2.6.0',
+    './student.js?v=2.6.0',
     './manifest.json',
     './icon-192.png',
     './icon-512.png',
