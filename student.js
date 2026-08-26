@@ -1,6 +1,6 @@
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwyvvIWBO6NxdNj3FE5DLXOBZdd3BqkHEv5VNiBU3NTSMSsp7qOBIIy957w31mol1mi/exec';
 const DATA_URLS = ['./vocabulary-question.json', './vocabulary-questions.json'];
-const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.0';
+const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.2';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
@@ -76,7 +76,129 @@ function bindEvents() {
     });
 }
 
-const VOCABULARY_CACHE_KEY = 'clear_maker_2c_vocab_cache_v2';
+const VOCABULARY_CACHE_KEY = 'clear_maker_2c_vocab_cache_v3';
+const VOCABULARY_BLANK = '(　　　)';
+const INVALID_VOCABULARY_QUESTION_IDS = new Set();
+
+function normalizeVocabularyQuestionText(text) {
+    return String(text || '')
+        .replace(/\\n/g, '\n')
+        .replace(/\(\[\[\s*[　　　]+\s*\]\]\)/g, VOCABULARY_BLANK)
+        .replace(/\[\[\s*[　　　]+\s*\]\]/g, VOCABULARY_BLANK)
+        .replace(/\(\[\s*[　　　]+\s*\]\)/g, VOCABULARY_BLANK)
+        .replace(/\(\[\[[\s　㊥㤗㫟〛]*\]\]?\)/g, VOCABULARY_BLANK)
+        .replace(/\[\[[\s　㊥㤗㫟〛]+\]\]/g, VOCABULARY_BLANK)
+        .replace(/\(\s*[㊥㤗㫟]+\s*\)/g, VOCABULARY_BLANK)
+        .replace(/\(\s*\)/g, VOCABULARY_BLANK);
+}
+
+function getVocabularyEnglishBody(text) {
+    const lines = String(text || '').split('\n');
+    const start = lines.findIndex((line, index) => {
+        const beforeGlossary = line.split('【語句】')[0];
+        return index > 0 && /[A-Za-z]/.test(beforeGlossary) && !/[ぁ-んァ-ヶ一-龯]/.test(beforeGlossary);
+    });
+    if (start < 0) return '';
+    const endOffset = lines.slice(start).findIndex(line => /^【/.test(line.trim()));
+    const end = endOffset < 0 ? lines.length : start + endOffset;
+    return lines.slice(start, end).join(' ').split('【語句】')[0].trim();
+}
+
+function getVocabularyWordForms(word) {
+    const irregular = {
+        be: ['am', 'is', 'are', 'was', 'were', 'been', 'being'],
+        beat: ['beat', 'beaten'], become: ['became', 'become'], begin: ['began', 'begun'],
+        break: ['broke', 'broken'], bring: ['brought'], build: ['built'], buy: ['bought'],
+        catch: ['caught'], choose: ['chose', 'chosen'], come: ['came', 'come'], cost: ['cost'],
+        cut: ['cut'], do: ['did', 'done'], drink: ['drank', 'drunk'], drive: ['drove', 'driven'],
+        eat: ['ate', 'eaten'], fall: ['fell', 'fallen'], feed: ['fed'], feel: ['felt'], fight: ['fought'],
+        find: ['found'], fly: ['flew', 'flown'], get: ['got', 'gotten'], give: ['gave', 'given'],
+        go: ['went', 'gone'], grow: ['grew', 'grown'], have: ['has', 'had'], hear: ['heard'],
+        keep: ['kept'], know: ['knew', 'known'], lay: ['laid'], leave: ['left'], lend: ['lent'],
+        lose: ['lost'], make: ['made'], meet: ['met'], pay: ['paid'], put: ['put'], read: ['read'],
+        ring: ['rang', 'rung'], run: ['ran', 'run'], say: ['said'], see: ['saw', 'seen'], send: ['sent'],
+        sing: ['sang', 'sung'], sit: ['sat'], sleep: ['slept'], speak: ['spoke', 'spoken'],
+        spend: ['spent'], stand: ['stood'], swim: ['swam', 'swum'], take: ['took', 'taken'],
+        teach: ['taught'], tell: ['told'], think: ['thought'], throw: ['threw', 'thrown'],
+        understand: ['understood'], wear: ['wore', 'worn'], win: ['won'], write: ['wrote', 'written'],
+    };
+    const forms = new Set();
+    String(word || '').split(/\s*[,/]\s*/).forEach(option => {
+        const base = option.trim().toLowerCase();
+        if (!base) return;
+        forms.add(base);
+        (irregular[base] || []).forEach(form => forms.add(form));
+        if (!/^[a-z]+$/.test(base)) return;
+        forms.add(/(?:s|x|z|ch|sh|o)$/.test(base) ? `${base}es` : /[^aeiou]y$/.test(base) ? `${base.slice(0, -1)}ies` : `${base}s`);
+        forms.add(/e$/.test(base) ? `${base}d` : /[^aeiou]y$/.test(base) ? `${base.slice(0, -1)}ied` : `${base}ed`);
+        forms.add(/ie$/.test(base) ? `${base.slice(0, -2)}ying` : /e$/.test(base) && !/(?:ee|ye)$/.test(base) ? `${base.slice(0, -1)}ing` : `${base}ing`);
+    });
+    return forms;
+}
+
+function repairVocabularyQuestionText(item, text) {
+    const lines = normalizeVocabularyQuestionText(text).split('\n');
+    const start = lines.findIndex((line, index) => {
+        const beforeGlossary = line.split('【語句】')[0];
+        return index > 0 && /[A-Za-z]/.test(beforeGlossary) && !/[ぁ-んァ-ヶ一-龯]/.test(beforeGlossary);
+    });
+    if (start < 0) return lines.join('\n');
+    const endOffset = lines.slice(start).findIndex(line => /^【/.test(line.trim()));
+    const end = endOffset < 0 ? lines.length : start + endOffset;
+    const rawEnglish = lines.slice(start, end).join('\n').replace(/（\s*　　　\s*）/g, VOCABULARY_BLANK);
+    const glossaryIndex = rawEnglish.indexOf('【語句】');
+    const trailingGlossary = glossaryIndex >= 0 ? rawEnglish.slice(glossaryIndex).trim() : '';
+    let english = (glossaryIndex >= 0 ? rawEnglish.slice(0, glossaryIndex) : rawEnglish).trimEnd();
+    const blankCount = (english.match(/\(　　　\)/g) || []).length;
+
+    if (blankCount > 0) {
+        english = english.replace(/\[\[|\]\]/g, '');
+    } else {
+        const forms = getVocabularyWordForms(item.word);
+        const matches = Array.from(english.matchAll(/\[\[([^\]]+)\]\]/g));
+        let selected = matches.find(match => {
+            const candidate = match[1].trim().toLowerCase();
+            if (forms.has(candidate)) return true;
+            return Array.from(forms).some(form => new RegExp(`(^|\\s)${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`, 'i').test(candidate));
+        });
+        if (!selected) {
+            const japaneseMatches = matches.filter(match => /[ぁ-んァ-ヶ一-龯]/.test(match[1]));
+            if (japaneseMatches.length === 1) selected = japaneseMatches[0];
+        }
+        if (selected) {
+            const selectedText = selected[1];
+            let replacement = VOCABULARY_BLANK;
+            const containedForm = Array.from(forms).find(form => new RegExp(`(^|\\s)${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`, 'i').test(selectedText));
+            if (containedForm && selectedText.trim().toLowerCase() !== containedForm) {
+                replacement = selectedText.replace(new RegExp(containedForm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), VOCABULARY_BLANK);
+            }
+            english = english.slice(0, selected.index) + replacement + english.slice(selected.index + selected[0].length);
+        }
+        english = english.replace(/\[\[|\]\]/g, '');
+    }
+
+    if (trailingGlossary) english += `\n${trailingGlossary}`;
+    lines.splice(start, end - start, ...english.split('\n'));
+    return lines.join('\n');
+}
+
+function prepareVocabularyQuestions(item) {
+    if (!Array.isArray(item?.questions)) return [];
+    return item.questions.map(question => {
+        if (!question || !question.question_text) return null;
+        return { ...question, question_text: repairVocabularyQuestionText(item, question.question_text) };
+    }).filter(question => {
+        if (!question || INVALID_VOCABULARY_QUESTION_IDS.has(question.id)) return false;
+        const englishBody = getVocabularyEnglishBody(question.question_text);
+        const blankCount = (englishBody.match(/\(　　　\)/g) || []).length;
+        const phraseWordCount = String(item.word || '').trim().split(/\s+/).length;
+        if (blankCount !== 1 && !(phraseWordCount > 1 && blankCount === phraseWordCount)) return false;
+        if (/\[\[[^\]]*[A-Za-z][^\]]*\]\]/.test(englishBody)) return false;
+        if (/[ぁ-んァ-ヶ一-龯]/.test(englishBody)) return false;
+        if (/_{2,}/.test(englishBody)) return false;
+        return true;
+    });
+}
 
 async function loadVocabulary() {
     try {
@@ -118,19 +240,26 @@ async function loadVocabulary() {
 
         if (!source || !source.items) throw new Error('教材データを取得できませんでした');
 
-        state.vocabulary = Object.values(source.items || {}).map((item, index) => ({
-            number: index + 1,
-            wordId: item.word_id,
-            word: String(item.word || '').trim(),
-            questions: Array.isArray(item.questions) ? item.questions.filter(q => q && q.question_text) : [],
-        })).filter(item => item.word && item.questions.length);
+        let excludedQuestionCount = 0;
+        state.vocabulary = Object.values(source.items || {}).map((item, index) => {
+            const questions = prepareVocabularyQuestions(item);
+            excludedQuestionCount += Math.max(0, (Array.isArray(item.questions) ? item.questions.length : 0) - questions.length);
+            return {
+                number: index + 1,
+                wordId: item.word_id,
+                word: String(item.word || '').trim(),
+                questions,
+            };
+        }).filter(item => item.word && item.questions.length);
 
         if (!state.vocabulary.length) throw new Error('有効な問題がありません');
 
         els.rangeStart.max = state.vocabulary.length;
         els.rangeEnd.max = state.vocabulary.length;
         els.dataStatus.textContent = `${state.vocabulary.length.toLocaleString()}語・${state.vocabulary.reduce((sum, item) => sum + item.questions.length, 0).toLocaleString()}問`;
-        els.dataStatus.title = `準備完了`;
+        els.dataStatus.title = excludedQuestionCount
+            ? `準備完了（形式不良の${excludedQuestionCount.toLocaleString()}問を除外）`
+            : '準備完了';
         els.dataStatus.classList.add('ready');
         els.createTest.disabled = false;
         updateModeUi();
@@ -663,21 +792,25 @@ function clearImages() {
 
 async function evaluateAnswer() {
     if (!state.test || !state.images.length) return;
-    const answerKey = state.test.questions.map(q => `${q.number}. 正答:「${q.answer}」 (問題文: ${q.text})`).join('\n');
+    const answerKey = state.test.questions.map(q => `${q.number}. ターゲット見出し語:「${q.answer}」 (問題文: ${q.text})`).join('\n');
     const prompt = `あなたは英単語テストの厳密かつ丁寧な採点・添削者です。
 生徒は問題番号（1〜${state.test.questions.length}）とともに「英単語」または「英文」を手書きで書いています。
-答案画像を正確に読み取り、下の【問題と正答表】に照合して採点してください。
+答案画像を正確に読み取り、下の【問題とターゲット語表】および各英文の文法・意味に照合して採点してください。
 
 【採点ルール】
-1. ○/×の合否判定は、空欄に入るべき「ターゲット英単語（正答）」のスペルのみを対象とします。
+1. 表にある語は辞書の「見出し語」です。実際の正答は、各問題文の空欄に文法的・意味的に入る形を問題ごとに判断してください。
 2. 生徒が「単語のみ（例: 1. accept）」を手書きしている場合も、「英文全体」を書いている場合も、どちらも正しく採点してください。
 3. 大文字・小文字の違いは正解として扱ってください（文頭等の場合は補足でアドバイス）。
-4. ターゲット英単語のスペルが1文字でも異なる、空欄、判読不能は不正解（×）です。
-5. 単語の使い回し（同じ単語を複数の異なる問題に当てはめて書いている）や明らかなカンニングは不正解としてください。
-6. 合格基準は90%以上（${state.test.questions.length}問中${Math.ceil(state.test.questions.length * 0.9)}問以上）の正解です。
-7. ${state.test.questions.length}問すべてについて判定を出力してください。
+4. 時制、三単現、過去分詞、現在分詞、複数形、比較級・最上級など、英文が要求する正しい活用・語形を正解とします。見出し語の原形と綴りが異なっても、それを理由に不正解にしないでください。
+5. 反対に、英文が過去形を要求するのに原形を書くなど、文脈に合わない語形は不正解です。
+6. 見出し語が「a, an」「OK / O.K.」のようにカンマやスラッシュで区切られている場合は、文脈に合う候補を1つ正しく書けば正解です。
+7. 複数語の見出し語では、すべての空欄を合わせてその語句を正しく完成できていれば正解です。
+8. 正しい語形のスペルが1文字でも異なる、空欄、判読不能は不正解（×）です。
+9. 単語の使い回し（同じ単語を複数の異なる問題に当てはめて書いている）や明らかなカンニングは不正解としてください。
+10. 合格基準は90%以上（${state.test.questions.length}問中${Math.ceil(state.test.questions.length * 0.9)}問以上）の正解です。
+11. ${state.test.questions.length}問すべてについて判定を出力してください。
 
-【問題と正答表】
+【問題とターゲット語表】
 ${answerKey}
 
 【出力フォーマット】
