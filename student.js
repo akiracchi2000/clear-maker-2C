@@ -4,6 +4,8 @@ const DATA_BUNDLE_URL = './vocabulary-data.js?v=2.6.4';
 const HISTORY_KEY = 'clear_maker_2c_history';
 const CHALLENGE_PROGRESS_PREFIX = 'clear_maker_2c_challenge20_';
 const CHALLENGE_COMPLETE_PREFIX = 'clear_maker_2c_challenge20_complete_';
+const CORRECT_WORD_COUNT_PREFIX = 'clear_maker_2c_correct_word_count_';
+const CORRECT_STAGE_RECORDED_PREFIX = 'clear_maker_2c_correct_stage_recorded_';
 const REMEDY_STORAGE_PREFIX = 'clear_maker_2c_remedy_';
 const DEVICE_ID_KEY = 'clear_maker_2c_device_id';
 const PASS_RATE = 0.9;
@@ -436,7 +438,8 @@ function updateStudentDisplay() {
 function getLearnerRank(clearedThrough) {
     const total = state.vocabulary.length || 1800;
     if (typeof clearedThrough !== 'number') {
-        clearedThrough = isChallengeComplete() ? total : Math.min(total, getChallengeBlockIndex() * 20);
+        const stageClearedThrough = isChallengeComplete() ? total : Math.min(total, getChallengeBlockIndex() * 20);
+        clearedThrough = getCorrectWordCount(stageClearedThrough);
     }
     const rate = total > 0 ? (clearedThrough / total) * 100 : 0;
 
@@ -480,6 +483,30 @@ function getChallengeProgressKey() {
 
 function getChallengeCompleteKey() {
     return `${CHALLENGE_COMPLETE_PREFIX}${state.studentId || 'guest'}`;
+}
+
+function getCorrectWordCountKey() {
+    return `${CORRECT_WORD_COUNT_PREFIX}${state.studentId || 'guest'}`;
+}
+
+function getCorrectWordCount(fallbackCount) {
+    const savedValue = localStorage.getItem(getCorrectWordCountKey());
+    if (savedValue === null) return Math.max(0, Number(fallbackCount) || 0);
+    return Math.max(0, Math.min(state.vocabulary.length || 1800, Number(savedValue) || 0));
+}
+
+function addPassedStageCorrectCount(result, wrongAnswers) {
+    const stageIndex = Number(state.test?.challengeBlockIndex);
+    const stageRecordedKey = `${CORRECT_STAGE_RECORDED_PREFIX}${state.studentId || 'guest'}_${stageIndex}`;
+    if (localStorage.getItem(stageRecordedKey) === '1') return;
+    const questionTotal = state.test?.questions?.length || 0;
+    const correctCount = Number.isFinite(result?.correct)
+        ? Math.max(0, Math.min(questionTotal, result.correct))
+        : Math.max(0, questionTotal - ((wrongAnswers && wrongAnswers.length) || 0));
+    const legacyClearedCount = Math.min(state.vocabulary.length || 1800, getChallengeBlockIndex() * 20);
+    const currentCount = getCorrectWordCount(legacyClearedCount);
+    localStorage.setItem(getCorrectWordCountKey(), String(Math.min(state.vocabulary.length || 1800, currentCount + correctCount)));
+    localStorage.setItem(stageRecordedKey, '1');
 }
 
 function isChallengeComplete() {
@@ -938,6 +965,8 @@ ${answerKey}
         }
 
         updateChallengeProgress(result, wrongAnswers);
+        syncVocabularyProgress().catch(error => console.warn('Progress sync deferred:', error));
+        syncVocabularyAttempt(result, wrongAnswers).catch(error => console.warn('Attempt history sync deferred:', error));
         saveHistory(text, result);
         updateLearnerRank();
         els.resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1026,16 +1055,16 @@ function updateChallengeProgress(result, wrongAnswers) {
     notice.className = `challenge-result ${result.passed ? 'passed' : 'locked'}`;
 
     if (result.passed && isCurrentStage && !isLastStage) {
+        addPassedStageCorrectCount(result, wrongAnswers);
         localStorage.setItem(getChallengeProgressKey(), String(currentIndex + 1));
         const nextStart = state.test.range.end + 1;
         notice.innerHTML = `<strong>ステージクリア！</strong><span>次は No.${nextStart}〜${Math.min(nextStart + 19, state.vocabulary.length)} に進めます。</span>`;
         els.newTest.textContent = '次の20題へ';
-        syncVocabularyProgress().catch(error => console.warn('Progress sync deferred:', error));
     } else if (result.passed && isLastStage) {
+        addPassedStageCorrectCount(result, wrongAnswers);
         localStorage.setItem(getChallengeCompleteKey(), '1');
         notice.innerHTML = '<strong>全ステージクリア！</strong><span>TARGET 1800を完走しました。</span>';
         els.newTest.textContent = 'もう一度テストを作る';
-        syncVocabularyProgress().catch(error => console.warn('Progress sync deferred:', error));
     } else if (!result.passed) {
         const needed = Math.ceil(state.test.questions.length * PASS_RATE);
         notice.innerHTML = `<strong>次の20題はまだロック中です</strong><span>${needed}題以上正解するまで、No.${state.test.range.start}〜${state.test.range.end}に再チャレンジします。</span>`;
@@ -1051,10 +1080,12 @@ function getVocabularyProgressSnapshot() {
     const clearedThrough = complete ? total : Math.min(total, getChallengeBlockIndex() * 20);
     const nextStart = Math.min(total, clearedThrough + 1);
     const nextEnd = Math.min(total, nextStart + 19);
+    const correctWordCount = getCorrectWordCount(clearedThrough);
     return {
         clearedThrough,
+        correctWordCount: correctWordCount,
         nextRange: complete ? '完了' : `No.${nextStart}〜${nextEnd}`,
-        rank: getLearnerRank(clearedThrough).name,
+        rank: getLearnerRank(correctWordCount).name,
     };
 }
 
@@ -1070,6 +1101,7 @@ async function syncVocabularyProgress() {
             studentName: state.studentName,
             deviceId: getDeviceId(),
             clearedThrough: progress.clearedThrough,
+            correctWordCount: progress.correctWordCount,
             nextRange: progress.nextRange,
             rank: progress.rank,
         }),
@@ -1078,6 +1110,7 @@ async function syncVocabularyProgress() {
     const data = await response.json();
     if (data.status !== 'success') throw new Error(data.error || '進捗を保存できませんでした');
     const serverClearedThrough = Math.max(0, Number(data.progress?.clearedThrough) || 0);
+    const serverCorrectWordCount = Math.max(0, Number(data.progress?.correctWordCount) || 0);
     const localProgress = getVocabularyProgressSnapshot();
     if (serverClearedThrough > localProgress.clearedThrough) {
         const total = state.vocabulary.length || 1800;
@@ -1089,6 +1122,8 @@ async function syncVocabularyProgress() {
         }
         updateModeUi();
     }
+    localStorage.setItem(getCorrectWordCountKey(), String(serverCorrectWordCount));
+    updateLearnerRank();
     return data.progress;
 }
 
@@ -1137,6 +1172,41 @@ async function syncVocabularyWrongAnswers(wrongAnswers) {
     } catch (err) {
         console.warn('Failed to sync wrong answers:', err);
     }
+}
+
+async function syncVocabularyAttempt(result, wrongAnswers) {
+    if (!state.studentId || !state.studentName || !state.test || result?.isResubmit) return;
+    const total = Math.max(1, Number(result?.total) || state.test.questions.length || 1);
+    const correct = Number.isFinite(result?.correct)
+        ? Math.max(0, Math.min(total, result.correct))
+        : Math.max(0, total - ((wrongAnswers && wrongAnswers.length) || 0));
+    const mode = state.test.remedyMode
+        ? '苦手克服'
+        : state.test.reviewMode
+        ? '復習'
+        : state.test.challenge20
+        ? '20題チャレンジ'
+        : '通常テスト';
+    const response = await fetch(GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+            action: 'saveVocabularyAttempt',
+            studentId: state.studentId,
+            studentName: state.studentName,
+            deviceId: getDeviceId(),
+            testId: state.test.id,
+            mode: mode,
+            range: `No.${state.test.range.start}〜${state.test.range.end}`,
+            correct: correct,
+            total: total,
+            passed: Boolean(result?.passed)
+        })
+    });
+    if (!response.ok) throw new Error(`実施履歴 HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.status !== 'success') throw new Error(data.error || '実施履歴を保存できませんでした');
+    return data.attempt;
 }
 
 async function syncVocabularyRemedyResult(masteredNumbers, wrongAnswers) {
